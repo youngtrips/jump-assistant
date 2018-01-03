@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 import pygame
 from pygame.locals import *
 from sys import exit
@@ -8,18 +7,19 @@ import math
 import subprocess
 import shlex
 import time
+import threading
+import string
+import Queue
 
 pygame.init()
 
-#screen = pygame.display.set_mode((720, 1280), 0, 32)
-screen = pygame.display.set_mode((720, 1280), 0, 32)
-pygame.display.set_caption("jump")
+screen = pygame.display.set_mode((720, 1280), pygame.DOUBLEBUF, 32)
+pygame.display.set_caption("jump-assistant")
 
 background = pygame.image.load("1.png").convert()
-screen.blit(background, (0,0))
+screen.blit(background, (0, 0))
 
 stack = []
-
 speed = 480
 
 def sqr(x):
@@ -43,33 +43,47 @@ def do_jump():
     subprocess.call(cmd)
     print cmd
 
-def refresh():
-    cmd = "adb shell screencap -p /sdcard/1.png"
-    print cmd
-    subprocess.call(shlex.split(cmd), shell=True)
+class ImageLoader(threading.Thread):
+    def __init__(self, que, ev):
+        threading.Thread.__init__(self)
+        self.que = que
+        self.ev = ev
 
-    cmd = "adb pull /sdcard/1.png ."
-    print cmd
-    subprocess.call(shlex.split(cmd), shell=True)
-    background = pygame.image.load("1.png").convert()
-    print background
-    screen.blit(background, (0,0))
-    pygame.display.flip()
+    def run(self):
+        print "start..."
+        while True:
+            cmd = "adb shell screencap -p /sdcard/1.png"
+            proc = subprocess.Popen(shlex.split(cmd), shell=True)
+            proc.wait()
+
+            cmd = "adb pull /sdcard/1.png ."
+            proc = subprocess.Popen(shlex.split(cmd), shell=True)
+            proc.wait()
+            img = pygame.image.load("1.png").convert()
+            if img != None:
+                self.que.put(img)
+            if self.ev.wait(0.1) == True:
+                break
+
+ev = threading.Event()
+images = Queue.Queue()
+loader = ImageLoader(images, ev)
+loader.start()
 
 last = time.time()
 while True:
     for event in pygame.event.get():
         if event.type == QUIT:
+            ev.set()
+            loader.join()
             exit()
         if event.type == MOUSEBUTTONDOWN:
             stack.append(event.pos)
             if len(stack) == 2:
                 do_jump()
-        if event.type == KEYDOWN:
-            if event.key == 32: # space
-                refresh()
-    curr = time.time() - last
-    if curr > 1:
-        curr = time.time()
-        refresh()
-    pygame.display.update()
+    try:
+        img = images.get_nowait()
+        screen.blit(img, (0, 0))
+    except:
+        pass
+    pygame.display.flip()
