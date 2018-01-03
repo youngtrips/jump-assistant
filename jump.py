@@ -66,7 +66,7 @@ while True:
             if len(stack) == 2:
                 do_jump()
         if event.type == KEYDOWN:
-            if event.key == 32: # enter
+            if event.key == 32: # space
                 refresh()
     curr = time.time() - last
     if curr > 1:
