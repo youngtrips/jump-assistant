@@ -1,4 +1,15 @@
 #!/usr/bin/env python
+#-*-: coding=utf-8 -*-
+
+usage = '''
+*******************************************************
+pip install pygame --user -U
+
+1. 开发者选项中开启 "允许通过 USB 调试修改权限或模拟点击"
+*******************************************************
+'''
+
+print usage
 
 import pygame
 from pygame.locals import *
@@ -7,20 +18,32 @@ import math
 import subprocess
 import shlex
 import time
-import threading
-import string
-import Queue
+
+# android screen
+results = str(subprocess.Popen(['adb shell wm size'],stdout=subprocess.PIPE, shell=True).communicate()[0]).strip()
+res = results.replace('Physical size: ', '').split('x')
+phonewidth, phoneheight = int(res[0]), int(res[1])
+
+#
+height = 640
+width = height * phonewidth / phoneheight
+scale = float(height) / float(phoneheight)
 
 pygame.init()
 
-screen = pygame.display.set_mode((720, 1280), pygame.DOUBLEBUF, 32)
-pygame.display.set_caption("jump-assistant")
+screen = pygame.display.set_mode((width, height), pygame.DOUBLEBUF, 32)
+pygame.display.set_caption("jump: 退出(esc) 点击起点和终点")
 
 background = pygame.image.load("1.png").convert()
-screen.blit(background, (0, 0))
+background = pygame.transform.scale(background, (width, height))
+screen.blit(background, (0,0))
 
 stack = []
 speed = 480
+
+
+def toPhone(x):
+    return x/scale
 
 def sqr(x):
     return x * x
@@ -39,51 +62,43 @@ def do_jump():
     stack.pop()
 
     # adb shell input swipe x y x y time(ms)
-    cmd = "adb shell input swipe %d %d %d %d %d" % (st[0], st[1], ed[0], ed[1], t * 1000)
-    subprocess.call(cmd)
-    print cmd
+    cmd = "adb shell input swipe %d %d %d %d %d" % (toPhone(st[0]),
+        toPhone(st[1]),
+        toPhone(ed[0]),
+        toPhone(ed[1]), t * 1000)
+    # print (cmd)
+    subprocess.call(cmd, shell=True)
 
-class ImageLoader(threading.Thread):
-    def __init__(self, que, ev):
-        threading.Thread.__init__(self)
-        self.que = que
-        self.ev = ev
+def refresh():
+    cmd = "adb shell /system/bin/screencap -p /sdcard/1.png"
+    # print cmd
+    subprocess.call(cmd, shell=True)
 
-    def run(self):
-        print "start..."
-        while True:
-            cmd = "adb shell screencap -p /sdcard/1.png"
-            proc = subprocess.Popen(shlex.split(cmd), shell=True)
-            proc.wait()
-
-            cmd = "adb pull /sdcard/1.png ."
-            proc = subprocess.Popen(shlex.split(cmd), shell=True)
-            proc.wait()
-            img = pygame.image.load("1.png").convert()
-            if img != None:
-                self.que.put(img)
-            if self.ev.wait(0.1) == True:
-                break
-
-ev = threading.Event()
-images = Queue.Queue()
-loader = ImageLoader(images, ev)
-loader.start()
+    cmd = "adb pull /sdcard/1.png 1.png"
+    # print cmd
+    subprocess.call(cmd, shell=True)
+    background = pygame.image.load("1.png").convert()
+    background = pygame.transform.scale(background, (width, height))
+    # print background
+    screen.blit(background, (0,0))
+    pygame.display.flip()
 
 last = time.time()
 while True:
     for event in pygame.event.get():
         if event.type == QUIT:
-            ev.set()
-            loader.join()
             exit()
         if event.type == MOUSEBUTTONDOWN:
             stack.append(event.pos)
             if len(stack) == 2:
                 do_jump()
-    try:
-        img = images.get_nowait()
-        screen.blit(img, (0, 0))
-    except:
-        pass
-    pygame.display.flip()
+        if event.type == KEYDOWN:
+            if event.key == 27: # esc
+                exit(0)
+            if event.key == 32: # space
+                refresh()
+    curr = time.time() - last
+    if curr > 1:
+        curr = time.time()
+        refresh()
+    pygame.display.update()
